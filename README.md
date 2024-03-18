@@ -1,1 +1,1 @@
-# google-codelab-webgpu-cgol
+# Google Codelab - Webgpu code game of life
