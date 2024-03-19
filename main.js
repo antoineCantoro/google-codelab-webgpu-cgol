@@ -25,6 +25,7 @@ context.configure({
   format: preferedFormat
 })
 
+const GRID_SIZE = 32;
 
 // Create encoder to send passes to the GPU
 const encoder = device.createCommandEncoder()
@@ -33,13 +34,13 @@ const encoder = device.createCommandEncoder()
 // Vertices
 
 const vertices = new Float32Array([
-  -0.5, -0.5,
-   0.5, -0.5,
-   0.5, 0.5,
+  -0.8, -0.8,
+   0.8, -0.8,
+   0.8, 0.8,
 
-  -0.5,  -0.5,
-   0.5,  0.5,
-  -0.5,  0.5
+  -0.8,  -0.8,
+   0.8,  0.8,
+  -0.8,  0.8
 ])
 
 const vertexBuffer = device.createBuffer({
@@ -59,15 +60,34 @@ const vertexBufferLayout = {
   }]
 }
 
+// Uniform buffer
+const uniformsArray = new Float32Array([GRID_SIZE, GRID_SIZE])
+const uniformsBuffer = device.createBuffer({
+  label: 'Uniform buffer',
+  size: uniformsArray.byteLength,
+  usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+})
+
+device.queue.writeBuffer(uniformsBuffer, 0, uniformsArray)
+
 // Config shaders
 
 const cellShaderModule = device.createShaderModule({
   label: 'Cell shader',
   code: `
+  @group(0) @binding(0) var<uniform> grid: vec2f;
+  
   @vertex
-  fn vertexMain(@location(0) pos: vec2f) ->
-    @builtin(position) vec4f {
-    return vec4f(pos, 0, 1);
+  fn vertexMain(
+    @location(0) pos: vec2f,
+    @builtin(instance_index) instance: u32) ->
+      @builtin(position) vec4f {
+        // WGSL "let" is like const in JS, WGSL's "var" is more like JS' "let"
+        let i = f32(instance);
+        let cell = vec2f(i % grid.x, floor(i / grid.x));
+        let cellOffset = cell / grid * 2;
+        let gridPos = ((pos + 1) / grid) - 1 + cellOffset;
+        return vec4f(gridPos, 0, 1);
   }
 
   @fragment
@@ -98,6 +118,18 @@ const cellRenderPipeline = device.createRenderPipeline({
 })
 
 
+const bindGroup = device.createBindGroup({
+  label: 'Cell render pipe group',
+  layout: cellRenderPipeline.getBindGroupLayout(0),
+  entries: [{
+    binding: 0,
+    resource: {
+      buffer: uniformsBuffer
+    }
+  }]
+})
+
+
 const pass = encoder.beginRenderPass({
   colorAttachments: [{
     view: context.getCurrentTexture().createView(),
@@ -111,7 +143,10 @@ const pass = encoder.beginRenderPass({
 
 pass.setPipeline(cellRenderPipeline)
 pass.setVertexBuffer(0, vertexBuffer)
-pass.draw(vertices.length / 2)
+
+pass.setBindGroup(0, bindGroup)
+
+pass.draw(vertices.length / 2, GRID_SIZE * GRID_SIZE)
 
 pass.end()
 
